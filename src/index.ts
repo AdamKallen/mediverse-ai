@@ -49,6 +49,40 @@ export default {
 	},
 } satisfies ExportedHandler<Env>;
 
+const VALID_ROLES = new Set(["system", "user", "assistant"]);
+const MAX_MESSAGES = 100;
+const MAX_CONTENT_LENGTH = 32_000;
+
+/**
+ * Validates that messages is a non-empty array of well-formed ChatMessage objects.
+ * Returns an error string on failure, or null if valid.
+ */
+function validateMessages(messages: unknown): string | null {
+	if (!Array.isArray(messages) || messages.length === 0) {
+		return "messages must be a non-empty array";
+	}
+	if (messages.length > MAX_MESSAGES) {
+		return `messages array exceeds maximum length of ${MAX_MESSAGES}`;
+	}
+	for (let i = 0; i < messages.length; i++) {
+		const msg = messages[i];
+		if (typeof msg !== "object" || msg === null) {
+			return `messages[${i}] must be an object`;
+		}
+		const { role, content } = msg as Record<string, unknown>;
+		if (typeof role !== "string" || !VALID_ROLES.has(role)) {
+			return `messages[${i}].role must be "system", "user", or "assistant"`;
+		}
+		if (typeof content !== "string" || content.trim() === "") {
+			return `messages[${i}].content must be a non-empty string`;
+		}
+		if (content.length > MAX_CONTENT_LENGTH) {
+			return `messages[${i}].content exceeds maximum length of ${MAX_CONTENT_LENGTH}`;
+		}
+	}
+	return null;
+}
+
 /**
  * Handles chat API requests
  */
@@ -58,9 +92,27 @@ async function handleChatRequest(
 ): Promise<Response> {
 	try {
 		// Parse JSON request body
-		const { messages = [] } = (await request.json()) as {
-			messages: ChatMessage[];
-		};
+		let body: unknown;
+		try {
+			body = await request.json();
+		} catch {
+			return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+				status: 400,
+				headers: { "content-type": "application/json" },
+			});
+		}
+
+		const messages: ChatMessage[] = Array.isArray((body as { messages?: unknown }).messages)
+			? ((body as { messages: ChatMessage[] }).messages)
+			: [];
+
+		const validationError = validateMessages(messages);
+		if (validationError) {
+			return new Response(JSON.stringify({ error: validationError }), {
+				status: 400,
+				headers: { "content-type": "application/json" },
+			});
+		}
 
 		// Add system prompt if not present
 		if (!messages.some((msg) => msg.role === "system")) {
@@ -88,7 +140,6 @@ async function handleChatRequest(
 			headers: {
 				"content-type": "text/event-stream; charset=utf-8",
 				"cache-control": "no-cache",
-				connection: "keep-alive",
 			},
 		});
 	} catch (error) {

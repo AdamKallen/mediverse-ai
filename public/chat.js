@@ -201,7 +201,9 @@ async function sendMessage() {
 function addMessageToChat(role, content) {
 	const messageEl = document.createElement("div");
 	messageEl.className = `message ${role}-message`;
-	messageEl.innerHTML = `<p>${content}</p>`;
+	const p = document.createElement("p");
+	p.textContent = content;
+	messageEl.appendChild(p);
 	chatMessages.appendChild(messageEl);
 
 	// Scroll to bottom
